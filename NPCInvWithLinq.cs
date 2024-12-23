@@ -4,6 +4,7 @@ using ExileCore2.PoEMemory.Elements;
 using ExileCore2.PoEMemory.MemoryObjects;
 using ExileCore2.Shared.Cache;
 using ExileCore2.Shared.Helpers;
+using ExileCore2.Shared.Enums;
 using ItemFilterLibrary;
 using System;
 using System.Collections.Generic;
@@ -14,6 +15,8 @@ using System.Numerics;
 using ExileCore2.Shared.Nodes;
 using static NPCInvWithLinq.ServerAndStashWindow;
 using RectangleF = ExileCore2.Shared.RectangleF;
+using System.Configuration;
+
 
 namespace NPCInvWithLinq;
 
@@ -74,6 +77,7 @@ public class NPCInvWithLinq : BaseSettingsPlugin<NPCInvWithLinqSettings>
         ProcessPurchaseWindow(hoveredItem);
         ProcessRewardsWindow(hoveredItem);
         ProcessRitualWindow(hoveredItem);
+        ProcessPlayerInventory();
     }
 
     private void ProcessRewardsWindow(Element hoveredItem)
@@ -368,4 +372,92 @@ public class NPCInvWithLinq : BaseSettingsPlugin<NPCInvWithLinqSettings>
     {
         return _itemFilters?.Any(filter => filter.Matches(item)) ?? false;
     }
+    private List<CustomItemData> GetPlayerInventoryItems()
+    {
+        var playerInventory = GameController.IngameState.ServerData.PlayerInventories.FirstOrDefault();
+        if (playerInventory?.Inventory?.InventorySlotItems == null)
+            return new List<CustomItemData>();
+
+        return playerInventory.Inventory.InventorySlotItems
+            .Where(slot => slot?.Item != null && slot.Item.Address != 0 && slot.Item.IsValid)
+            .Select(slot => new CustomItemData(slot.Item, GameController, EKind.PlayerInventory)
+            {
+                ClientRectangle = CalculateRectangleFromSlot(new Vector2(slot.PosX, slot.PosY), slot.SizeX, slot.SizeY)
+            })
+            .ToList();
+    }
+
+    private void ProcessPlayerInventory()
+    {
+        var inventoryElement = GameController.IngameState.IngameUi.InventoryPanel;
+        if (inventoryElement == null || !inventoryElement.IsVisible)
+            return;
+
+        var inventoryRect = inventoryElement[2].GetClientRectCache;
+        var cellSize = GetInventoryCellSize(inventoryElement[2]);
+
+        var playerItems = GameController.IngameState.ServerData.PlayerInventories[0].Inventory.InventorySlotItems;
+
+        foreach (var item in playerItems)
+        {
+            if (item.Item == null || !item.Item.IsValid)
+                continue;
+
+            var adjustedRectangle = CalculateItemRectangle(inventoryElement, cellSize, new Vector2(item.PosX, item.PosY), item.SizeX, item.SizeY);
+            var itemData = new CustomItemData(item.Item, GameController, EKind.PlayerInventory);
+
+            if (_itemFilters != null && _itemFilters.Any(filter => filter.Matches(itemData)))
+            {
+                Graphics.DrawFrame(adjustedRectangle, Settings.FrameColor, Settings.FrameThickness);
+            }
+
+        }
+    }
+
+    private RectangleF CalculateRectangleFromSlot(Vector2 inventoryPosition, int sizeX, int sizeY)
+    {
+        var cellSize = GetInventoryCellSize(GameController.IngameState.IngameUi.InventoryPanel[2]);
+        return new RectangleF(
+            inventoryPosition.X * cellSize.X,
+            inventoryPosition.Y * cellSize.Y,
+            sizeX * cellSize.X,
+            sizeY * cellSize.Y
+        );
+    }
+
+    private RectangleF CalculateItemRectangle(Element inventoryElement, Vector2 cellSize, Vector2 inventoryPosition, int sizeX, int sizeY)
+    {
+        var inventoryRect = inventoryElement[2].GetClientRectCache;
+
+        const float verticalOffset = -8;
+        const float horizontalOffset = 6;
+
+        var itemTopLeft = new Vector2(
+            inventoryRect.TopLeft.X + inventoryPosition.X * cellSize.Y + horizontalOffset,
+            inventoryRect.TopLeft.Y + inventoryPosition.Y * cellSize.Y + verticalOffset
+        );
+
+        return new RectangleF(
+            itemTopLeft.X,
+            itemTopLeft.Y,
+            sizeX * cellSize.X,
+            sizeY * cellSize.Y 
+        );
+    }
+
+    private Vector2 GetInventoryCellSize(Element inventoryElement)
+    {
+        var inventoryRect = inventoryElement.GetClientRectCache;
+        const int numColumns = 12;
+        const int numRows = 5;
+
+        return new Vector2(
+            inventoryRect.Width / numColumns,
+            inventoryRect.Height / numRows
+        );
+    }
+
 }
+
+
+
